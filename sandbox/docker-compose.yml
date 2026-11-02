@@ -1,0 +1,32 @@
+services:
+  mock:
+    build: ./mock
+    read_only: true
+    tmpfs:
+      - /data:mode=1777
+    networks:
+      - internal
+    environment:
+      DB_PATH: /data/mock.db
+
+  target:
+    build: ./target
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    networks:
+      - internal
+      - default
+    ports:
+      - "8000:8000"
+    environment:
+      MOCK_URL: http://mock:8000
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      TARGET_MODEL: ${TARGET_MODEL:-llama-3.3-70b-versatile}
+    depends_on:
+      - mock
+
+networks:
+  internal:
+    internal: true
+  default:

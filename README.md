@@ -53,36 +53,43 @@ Two reasons:
 The answer, after building this and running it against Groq's `openai/gpt-oss-120b`: **no.** A well-prompted model will refuse 100% of obvious attacks (admin claims, instruction overrides, urgent framing). But it will still leak its own system prompt, still get fooled by multi-turn identity games, still trust user-provided recipient labels, and — critically — still sometimes execute tool calls before "deciding" to refuse them.
 
 All four of those are exploitable. All four are documented below.
-
 ## Architecture
 
 Two trust zones. Strict HTTP boundary between them.
 
 ```mermaid
-flowchart TD
-    subgraph HOST["HOST Environment (Trusted)"]
-        direction LR
-        R["redteam/<br>Attacker<br>(LangGraph + Groq)"]
-        J["judge/<br>Evaluator<br>(State Check)"]
-        T["telemetry/<br>SQLite DB"]
-        TS["tests/<br>YAML Suite"]
-
+flowchart LR
+    subgraph Host["HOST (Trusted)"]
+        R["redteam/<br>Attacker"]
+        J["judge/<br>Evaluator"]
+        T[("telemetry/<br>SQLite DB")]
+        
         R -.-> T
         J -.-> T
-        TS -.-> R
     end
 
-    subgraph SANDBOX["DOCKER Sandbox (Untrusted)"]
-        direction LR
-        Target["target agent<br>LangGraph ReAct<br>(read_only, non-root)"]
-        Mock["mock banking API<br>FastAPI + SQLite<br>(internal network only)"]
-
-        Target -- "HTTP (internal)" --> Mock
+    subgraph Sandbox["DOCKER SANDBOX (Untrusted)"]
+        Target["target agent<br>LangGraph ReAct"]
+        Mock["mock banking API<br>FastAPI + SQLite"]
+        
+        Target -- "Internal HTTP" --> Mock
     end
 
-    R -- "HTTP :8000 (POST /chat)" --> Target
-    J -- "HTTP :8000 (GET /_state)" --> Target
+    R -- "POST /chat :8000" --> Target
+    J -- "GET /_state :8000" --> Target
 ```
+
+**Why this split matters:**
+
+- **Target cannot reach the internet** — no exfiltration, no downloading payloads
+- **Target cannot write to disk** — read-only filesystem, no persistence
+- **Target runs as non-root** — no privilege escalation
+- **Mock API holds state** — the ground truth of "did money move?"
+- **Attacker lives outside** — cannot reach mock DB directly, only via `/chat`
+- **Judge lives outside** — inspects mock DB state directly (attacker cannot)
+
+The judge has more visibility than the attacker. That asymmetry is what makes detection possible.
+
 
 **Why this split matters:**
 
